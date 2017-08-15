@@ -3,6 +3,7 @@ import wiringpi
 import config
 import time
 import traceback
+import morse
 from copy import copy
 
 # setup GPIO
@@ -103,6 +104,8 @@ class Light(object):
 
         self.run_modes()
 
+        return mode
+
     def run_modes(self):
         """ Run all waiting modes, stopping when the queue is empty. """
         if self.mode_running:
@@ -162,6 +165,27 @@ class Light(object):
 
         return self.append_mode(mode_alarm)
 
+    def morse(self, text):
+        @asyncio.coroutine
+        def mode_morse():
+            code = morse.text_to_morse(text)
+
+            color_off = Color(0, 0, 0)
+            color_on = Color(100, 100, 100)
+
+            for symbol in code:
+                is_pause = symbol in [" ", "/"]
+                color = color_on if not is_pause else color_off
+
+                self._write(color)
+                yield from asyncio.sleep(morse.durations[symbol])
+
+                if not is_pause:
+                    self._write(color_off)
+                    yield from asyncio.sleep(morse.duration_pause)
+
+        return self.append_mode(mode_morse)
+
 
 def run():
     def handle_message(message):
@@ -205,6 +229,9 @@ def run():
             # Cancel the currently executing mode
             light.cancel_mode()
             pass
+
+        elif message[0] == "morse":
+            light.morse(" ".join(message[1:]))
 
         else:
             raise NotImplementedError("Unknown mode")
