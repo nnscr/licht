@@ -62,9 +62,4 @@ durations = {
 
 
 def text_to_morse(text: str):
-    text_as_morse = list()
-    for letter in text.upper():
-        text_as_morse.append(code[letter])
-
-    # Convention says that there must be 3 pauses between characters
-    return " ".join(text_as_morse)
+    return " ".join([code[letter] for letter in text.upper()])

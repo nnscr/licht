@@ -13,6 +13,13 @@ pwm_g = wiringpi.SoftPWM(config.pin_g, config.pwm_range)
 pwm_b = wiringpi.SoftPWM(config.pin_b, config.pwm_range)
 
 
+def list_get(l, idx, default=None):
+    try:
+        return l[idx]
+    except IndexError:
+        return default
+
+
 class Color(object):
     """ A mutable color object. """
     __slots__ = ["r", "g", "b"]
@@ -66,7 +73,7 @@ class Light(object):
         else:
             self.transition(self.current, current=Color(pwm_r.value, pwm_g.value, pwm_b.value))
 
-    def transition(self, final_color, current=None, duration=500):
+    def transition(self, final_color, current=None, duration=500.):
         """ Make a transition from the current color to the given target color. """
 
         @asyncio.coroutine
@@ -165,6 +172,20 @@ class Light(object):
 
         return self.append_mode(mode_alarm)
 
+    def alert(self, times, speed):
+        @asyncio.coroutine
+        def mode_alert():
+            duration = speed / 2
+            original = self.current
+
+            for i in range(0, times):
+                yield from self.transition(Color(100, 0, 0), duration=duration)
+                yield from self.transition(Color(30, 0, 0), duration=duration)
+
+            self.current = original
+
+        return self.append_mode(mode_alert)
+
     def morse(self, text):
         @asyncio.coroutine
         def mode_morse():
@@ -175,9 +196,8 @@ class Light(object):
 
             for symbol in code:
                 is_pause = symbol in [" ", "/"]
-                color = color_on if not is_pause else color_off
 
-                self._write(color)
+                self._write(color_on if not is_pause else color_off)
                 yield from asyncio.sleep(morse.durations[symbol])
 
                 if not is_pause:
@@ -188,18 +208,13 @@ class Light(object):
 
 
 def run():
-    def handle_message(message):
+    def handle_message(message: str):
         message = message.split(" ")
 
         if message[0] == "on":
-            if len(message) == 1:
-                r = config.default_r
-                g = config.default_g
-                b = config.default_b
-            else:
-                r = int(message[1])
-                g = int(message[2])
-                b = int(message[3])
+            r = list_get(message, 1, config.default_r)
+            g = list_get(message, 2, config.default_g)
+            b = list_get(message, 3, config.default_b)
 
             if len(message) == 5:
                 brightness = max(0, min(100, int(message[4])))
@@ -208,7 +223,7 @@ def run():
                 g = g / 100 * brightness
                 b = b / 100 * brightness
 
-            duration = 500 if len(message) < 6 else int(message[5])
+            duration = list_get(message, 6, 500)
 
             # When changing default color, use a soft transition
             return light.transition(Color(r, g, b), duration=duration)
@@ -218,12 +233,18 @@ def run():
 
         elif message[0] == "alarm":
             duration = int(message[1])
-            color = message[2] if len(message) >= 3 else "r"
-            speed = int(message[3]) if len(message) >= 6 else 2
+            color = list_get(message, 2, "r")
+            speed = int(list_get(message, 3, 2))
             speed = speed / 1000
-            step = int(message[4]) if len(message) >= 5 else 1
+            step = int(list_get(message, 4, 1))
 
             light.alarm(color, duration, speed, step)
+
+        elif message[0] == "alert":
+            times = int(list_get(message, 1, 3))
+            speed = int(list_get(message, 2, 300))
+
+            light.alert(times, speed)
 
         elif message[0] == "cancel":
             # Cancel the currently executing mode
